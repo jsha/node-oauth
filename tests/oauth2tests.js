@@ -1,11 +1,42 @@
 var vows = require('vows'),
     assert = require('assert'),
+    DummyResponse= require('./shared').DummyResponse,
+    DummyRequest= require('./shared').DummyRequest,
+    https = require('https'),
     OAuth2= require('../lib/oauth2').OAuth2,
     url = require('url');
 
 vows.describe('OAuth2').addBatch({
     'Given an OAuth2 instance with clientId and clientSecret, ': {
       topic: new OAuth2("clientId", "clientSecret"),
+      'When dealing with the response from the OP': {
+        'we should treat a 201 response as a success': function(oa) {
+          var callbackCalled= false;
+          var http_library= {
+            request: function() {
+              return new DummyRequest(new DummyResponse(201));
+            }
+          };
+          oa._executeRequest( http_library, {}, null, function(err, result, response) {
+            callbackCalled= true;
+            assert.equal(err, null);
+          });
+          assert.ok(callbackCalled);
+        },
+        'we should treat a 200 response as a success': function(oa) {
+          var callbackCalled= false;
+          var http_library= {
+            request: function() {
+              return new DummyRequest(new DummyResponse(200));
+            }
+          };
+          oa._executeRequest( http_library, {}, null, function(err, result, response) {
+            callbackCalled= true;
+            assert.equal(err, null);
+          });
+          assert.ok(callbackCalled);
+        }
+      },
       'When handling the access token response': {
         'we should correctly extract the token if received as form-data': function (oa) {
             oa._request= function( method, url, fo, bar, bleh, callback) {
@@ -158,6 +189,29 @@ vows.describe('OAuth2').addBatch({
             }
             oa._request("POST", "", {"Content-Type":"text/plain"}, "THIS_IS_A_POST_BODY_STRING");
             assert.ok( bodyWritten );
+          },
+          'we should see a given buffer being sent to the request' : function(oa) {
+            var bodyWritten= false;
+            oa._chooseHttpLibrary= function() {
+              return {
+                request: function(options) {
+                  assert.equal(options.headers["Content-Type"], "application/octet-stream");
+                  assert.equal(options.headers["Content-Length"], 4);
+                  assert.equal(options.method, "POST");
+                  return  {
+                    end: function() {},
+                    on: function() {},
+                    write: function(body) {
+                      bodyWritten= true;
+                      assert.isNotNull(body);
+                      assert.equal(4, body.length)
+                    }
+                  }
+                }
+              };
+            }
+            oa._request("POST", "", {"Content-Type":"application/octet-stream"}, new Buffer([1,2,3,4]));
+            assert.ok( bodyWritten );
           }
         },
         'When PUTing': {
@@ -182,6 +236,29 @@ vows.describe('OAuth2').addBatch({
               };
             }
             oa._request("PUT", "", {"Content-Type":"text/plain"}, "THIS_IS_A_PUT_BODY_STRING");
+            assert.ok( bodyWritten );
+          },
+          'we should see a given buffer being sent to the request' : function(oa) {
+            var bodyWritten= false;
+            oa._chooseHttpLibrary= function() {
+              return {
+                request: function(options) {
+                  assert.equal(options.headers["Content-Type"], "application/octet-stream");
+                  assert.equal(options.headers["Content-Length"], 4);
+                  assert.equal(options.method, "PUT");
+                  return  {
+                    end: function() {},
+                    on: function() {},
+                    write: function(body) {
+                      bodyWritten= true;
+                      assert.isNotNull(body);
+                      assert.equal(4, body.length)
+                    }
+                  }
+                }
+              };
+            }
+            oa._request("PUT", "", {"Content-Type":"application/octet-stream"}, new Buffer([1,2,3,4]));
             assert.ok( bodyWritten );
           }
         }
@@ -210,13 +287,18 @@ vows.describe('OAuth2').addBatch({
         }
       }
     },
-    'HTTPS URL connection testing, ': {
-      topic: function() {
-        var oa = new OAuth2("clientId", "clientSecret");
-        oa._request('GET', 'https://www.bing.com/', {}, null, '', this.callback);
-      },
-      'we should correctly get the response code == 200': function(error, result, response) {
-        assert.equal(response.statusCode, 200);
+    'When specifying an agent, that agent is passed to the HTTP request method' : {
+      topic : new OAuth2('clientId', 'clientSecret', undefined, undefined, undefined, undefined),
+      'When calling _executeRequest': {
+        'we whould see the agent being put into the options' : function(oa) {
+          oa.setAgent('awesome agent');
+          oa._executeRequest({
+            request : function(options, cb) {
+              assert.equal(options.agent, 'awesome agent');
+              return new DummyRequest(new DummyResponse(200));
+            }
+          }, {}, null, function() {});
+        }
       }
     }
 }).export(module);
